@@ -11,17 +11,25 @@ class Repo:
     data = None
     owner = None
     name = None
+    token = None
+
+    def auth(self):
+        return {
+            "Authorization": f"Bearer {self.token}"
+        }
 
     def save(self):        
-        open(f"{self.data['name']}.ttl", "w").write(
-            self.graph.serialize(format="turtle")
+        open(f"{self.data['name']}.nt", "w").write(
+            self.graph.serialize(format="ntriples")
         )
 
 
-def get_repo(owner, name):
-    data = requests.get(f"https://api.github.com/repos/{owner}/{name}").json()
-
+def get_repo(owner, name, token):
     repo = Repo()
+    repo.token = token
+
+    data = requests.get(f"https://api.github.com/repos/{owner}/{name}", headers=repo.auth()).json()
+
     repo.data = data
     repo.graph = Graph()
     repo.iri = GITHUB_REPO[data["full_name"]]
@@ -46,7 +54,7 @@ def model_commits(repo: Repo, branch: str):
         "per_page": 100   # the number of commits per page (max 100)
     }
 
-    response = requests.get(url, params=params)
+    response = requests.get(url, params=params, headers=repo.auth())
 
     if response.status_code == 200:
         commits = response.json()
@@ -70,7 +78,7 @@ def model_commits(repo: Repo, branch: str):
 
 def model_contributors(repo: Repo):
     contributors_url = repo.data["contributors_url"]
-    contributors_response = requests.get(contributors_url)
+    contributors_response = requests.get(contributors_url, headers=repo.auth())
     contributors_data = contributors_response.json()
 
     for contributor in contributors_data:
@@ -82,7 +90,7 @@ def model_contributors(repo: Repo):
 
 def model_branches(repo: Repo):
     branches_url = f"https://api.github.com/repos/{repo.owner}/{repo.name}/branches"
-    branches_response = requests.get(branches_url)
+    branches_response = requests.get(branches_url, headers=repo.auth())
     branches_data = branches_response.json()
     for branch in branches_data:
         branches_uri = URIRef(f"{repo.iri}/branch/{branch['name']}")
@@ -93,8 +101,8 @@ def model_branches(repo: Repo):
         
         model_commits(repo, branch["name"])
 
-def hovud(owner, name):
-    repo = get_repo(owner, name)
+def hovud(owner, name, token):
+    repo = get_repo(owner, name, token)
     model_contributors(repo)
     model_branches(repo)
 
@@ -102,4 +110,24 @@ def hovud(owner, name):
 
 
 if __name__ == "__main__":
-    hovud("markus-ap", "paprika")
+    import sys
+    message = """
+Usage:
+python hovud.py <REPO_OWNER> <REPO_NAME> <TOKEN>
+
+To get token:
+git credential fill
+protocol=https
+host=github.com
+
+Hit enter twice. Your token should appear as "password".
+"""
+    if sys.argv[1] in ["-h", "--help", "h", "help"]:
+        print(message)
+    elif len(sys.argv) < 3:
+        raise Exception(message)
+    else:
+        eigar = sys.argv[1]
+        depot = sys.argv[2]
+        token = sys.argv[3]
+        hovud(eigar, depot, token)
